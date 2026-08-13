@@ -62,7 +62,7 @@ def search_naver_api(endpoint, query, display=50, sort='sim'):
         res = requests.get(url, params=payload, headers=get_headers())
         res.raise_for_status()
         print(len(res.json()))
-        print(res.json())
+        
         return res.json().get('items', [])
     except requests.exceptions.RequestException as e:
         detail = ""

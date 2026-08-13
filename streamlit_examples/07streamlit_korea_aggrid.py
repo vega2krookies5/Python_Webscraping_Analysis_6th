@@ -13,7 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent  # 프로젝트 루트 (stream
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode, GridUpdateMode
+# GridUpdateMode 는 deprecated 되어 더 이상 import 하지 않는다 (아래 update_on 참고)
+from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
 # 데이터 로드
 @st.cache_data
@@ -51,12 +52,36 @@ else:
     grid_options = gb.build()
 
     # AgGrid 실행
+    #
+    # [update_on 이란]
+    #   "그리드에서 어떤 일이 일어났을 때 Streamlit 을 재실행할 것인가" 를 지정한다.
+    #   여기에 적힌 이벤트가 발생해야 파이썬 쪽으로 변경된 데이터가 돌아온다.
+    #   (즉, 아래 updated_df 가 갱신되고 그래프가 다시 그려진다)
+    #
+    # [예전 방식이 사라진 이유]
+    #   과거에는 update_mode=GridUpdateMode.MODEL_CHANGED 처럼
+    #   '미리 정해진 묶음(enum)' 중에서 고르는 방식이었다.
+    #   하지만 AG Grid 가 제공하는 이벤트는 수십 가지인데 enum 으로는 일부만 쓸 수 있어,
+    #   이벤트 이름을 문자열로 직접 나열하는 update_on 방식으로 바뀌었다.
+    #
+    # [MODEL_CHANGED 와 동일한 설정]
+    #   MODEL_CHANGED = VALUE_CHANGED | SELECTION_CHANGED | FILTERING_CHANGED | SORTING_CHANGED
+    #   이 4가지가 아래 4개 문자열로 1:1 대응되므로 동작은 완전히 같다.
+    #
+    # [응답 속도 조절]
+    #   ('columnResized', 300) 처럼 튜플로 주면 300ms 디바운스가 걸린다.
+    #   (연속으로 발생하는 이벤트가 재실행을 과도하게 일으키는 것을 막는다)
     grid_response = AgGrid(
         sido_df,
         gridOptions=grid_options,
         height=300,
         width='100%',
-        update_mode=GridUpdateMode.MODEL_CHANGED,
+        update_on=[
+            'cellValueChanged',   # 셀 값을 수정했을 때  (편집 반영 → 그래프 갱신)
+            'selectionChanged',   # 행을 선택했을 때
+            'filterChanged',      # 필터를 걸었을 때
+            'sortChanged',        # 정렬을 바꿨을 때
+        ],
         columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
         theme='material' # 또는 'alpine', 'balham', 'material'
     )
@@ -70,13 +95,42 @@ else:
     with col1:
         st.subheader(f"👥 인구수 현황")
         fig, ax = plt.subplots(figsize=(10, 8))
-        sns.barplot(x='행정구역', y='인구수', data=updated_df.sort_values(by='인구수', ascending=False), ax=ax, palette='viridis')
-        plt.xticks(rotation=45)
+
+        # seaborn 0.13 부터 palette 는 반드시 hue 와 함께 써야 한다.
+        #   - palette 는 '무엇에 따라 색을 나눌지(hue)' 에 색을 배정하는 규칙이다.
+        #   - hue 없이 palette 만 주면 '기준' 이 없으므로 v0.14 에서 제거 예정(FutureWarning).
+        # 막대마다 색을 다르게 하려면 x 와 같은 열을 hue 에 넣고,
+        # 범례는 x축 라벨과 중복되므로 legend=False 로 끈다.
+        sns.barplot(
+            x='행정구역',
+            y='인구수',
+            hue='행정구역',      # x 와 동일한 열 → 막대별로 다른 색
+            data=updated_df.sort_values(by='인구수', ascending=False),
+            ax=ax,
+            palette='viridis',
+            legend=False,        # 범례가 x축 라벨과 중복되므로 숨김
+        )
+
+        # tick_params 를 쓰면 '현재 figure' 가 아니라 이 ax 에 확실히 적용된다
+        ax.tick_params(axis='x', rotation=45)
         st.pyplot(fig)
+        plt.close(fig)   # 재실행 때마다 figure 가 쌓이지 않도록 닫아준다
 
     with col2:
         st.subheader(f"🗺️ 면적 현황")
         fig, ax = plt.subplots(figsize=(10, 8))
-        sns.barplot(x='행정구역', y='면적', data=updated_df.sort_values(by='면적', ascending=False), ax=ax, palette='magma')
-        plt.xticks(rotation=45)
+
+        # 위와 동일한 이유로 hue='행정구역' + legend=False 를 지정한다
+        sns.barplot(
+            x='행정구역',
+            y='면적',
+            hue='행정구역',
+            data=updated_df.sort_values(by='면적', ascending=False),
+            ax=ax,
+            palette='magma',
+            legend=False,
+        )
+
+        ax.tick_params(axis='x', rotation=45)
         st.pyplot(fig)
+        plt.close(fig)
